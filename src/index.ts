@@ -47,6 +47,17 @@ export function parseMib(
 
     const loadedModules = parser.getLoadedModules();
 
+    // 사용자가 요청한 파일들의 모듈명 추출 (separate 모드용 필터링)
+    const targetModules = new Set<string>();
+    if (options.mode === 'separate') {
+        for (const fp of filePaths) {
+            const info = resolver.parseMibHeader(fp);
+            if (info && info.moduleName) {
+                targetModules.add(info.moduleName);
+            }
+        }
+    }
+
     if (options.mode === 'merged') {
         const mergedSymbols: Record<string, MibSymbolInfo> = {};
         for (const modName of loadedModules) {
@@ -61,7 +72,9 @@ export function parseMib(
             parsedAt: new Date(),
         };
     } else {
+        // separate 모드: targetModules에 있는 것만 포함
         result.modules = loadedModules
+            .filter(modName => targetModules.has(modName))
             .map((modName) => parser.getModuleResults(modName)!)
             .filter((m) => m !== null);
     }

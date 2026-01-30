@@ -29,60 +29,77 @@ export class MibParser {
 
         const symbols: Record<string, MibSymbolInfo> = {};
 
-        // net-snmp의 프로바이더 추출 로직을 활용합니다. (Scalar/Table 구분)
+        // 1. Providers 우선 처리 (정확한 Scalar/Table/Column 구분용)
         const providers = this.store.getProvidersForModule(moduleName);
+        for (const p of providers) {
+            if (p.type === snmp.MibProviderType.Scalar) {
+                symbols[p.name] = this.extractSymbolInfo(p.name, p, 'Scalar', moduleName);
+            } else if (p.type === snmp.MibProviderType.Table) {
+                symbols[p.name] = this.extractSymbolInfo(p.name, p, 'Table', moduleName);
 
-        for (const provider of providers) {
-            if (provider.type === snmp.MibProviderType.Scalar) {
-                const type = 'Scalar';
-                const rawOid = provider.oid;
-                const oid = OidFormatter.format(rawOid, type);
-
-                symbols[provider.name] = {
-                    oid,
-                    rawOid,
-                    name: provider.name,
-                    type,
-                    description: provider.description, // getProviders에서 description을 넣어주나 확인 필요
-                    syntax: provider.scalarType,
-                    access: provider.maxAccess,
-                };
-            } else if (provider.type === snmp.MibProviderType.Table) {
-                // 테이블 처리
-                const type = 'Table';
-                symbols[provider.name] = {
-                    oid: provider.oid,
-                    rawOid: provider.oid,
-                    name: provider.name,
-                    type,
-                    description: provider.description,
-                    // 테이블 하위 컬럼들도 심볼로 추가할 수 있으나, 일단 테이블 자체만 추가
-                };
-
-                // 컬럼들도 개별 심볼로 추가 (TableColumn)
-                if (provider.tableColumns) {
-                    for (const col of provider.tableColumns) {
-                        const colType = 'TableColumn';
-                        symbols[col.name] = {
-                            oid: provider.oid + '.' + col.number,
-                            rawOid: provider.oid + '.' + col.number,
-                            name: col.name,
-                            type: colType,
-                            syntax: col.type,
-                            access: col.maxAccess,
-                        };
+                // 컬럼들도 추가
+                if (p.tableColumns) {
+                    for (const col of p.tableColumns) {
+                        const colOid = p.oid + '.' + col.number;
+                        symbols[col.name] = this.extractSymbolInfo(col.name, { ...col, oid: colOid }, 'TableColumn', moduleName);
                     }
                 }
             }
         }
 
-        // OBJECT IDENTIFIER 같은 나머지 노드들도 포함하고 싶다면 기존 로직과 병합 필요
-        // 일단은 SNMP 연동에 중요한 Scalar/Table 위주로 처리
+        // 2. 나머지 노드 수집 (계층 노드, MODULE-IDENTITY 등)
+        for (const name in module) {
+            if (symbols[name]) continue; // 이미 처리된 경우 스킵
+
+            const node = module[name];
+            if (typeof node === 'object' && node !== null) {
+                const type = TypeDetector.detect(node);
+                if (type !== 'Unknown') {
+                    symbols[name] = this.extractSymbolInfo(name, node, type, moduleName);
+                }
+            }
+        }
 
         return {
             moduleName,
             symbols,
             parsedAt: new Date(),
         };
+    }
+
+    private extractSymbolInfo(name: string, nodeOrProvider: any, type: any, currentModuleName: string): MibSymbolInfo {
+        const rawOid = nodeOrProvider.oid || nodeOrProvider.OID || nodeOrProvider['OBJECT IDENTIFIER OID'] || '';
+        const oid = OidFormatter.format(rawOid, type);
+
+        // 설명 추출
+        let description = nodeOrProvider.description || nodeOrProvider.DESCRIPTION;
+        if (!description) {
+            // 모듈 정보에서 직접 찾음
+            const storeNode = this.store.getModule(currentModuleName)?.[name];
+            if (storeNode) {
+                description = storeNode.description || storeNode.DESCRIPTION;
+            }
+        }
+
+        return {
+            oid,
+            rawOid,
+            name: name,
+            type: type,
+            description: description,
+            syntax: this.formatSyntax(nodeOrProvider.syntax || nodeOrProvider.SYNTAX || nodeOrProvider.scalarType || nodeOrProvider.type),
+            access: nodeOrProvider.access || nodeOrProvider.ACCESS || nodeOrProvider.maxAccess || nodeOrProvider['MAX-ACCESS'],
+        };
+    }
+
+    private formatSyntax(syntax: any): any {
+        if (!syntax) return undefined;
+        if (typeof syntax === 'string') return syntax;
+        if (typeof syntax === 'object') {
+            const keys = Object.keys(syntax);
+            if (keys.length === 1) return keys[0];
+            return JSON.stringify(syntax);
+        }
+        return syntax;
     }
 }
