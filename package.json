@@ -27,6 +27,7 @@
   },
   "homepage": "https://github.com/HoilRyu/mib-parsing-core-lib#readme",
   "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
     "@types/jest": "^30.0.0",
     "@types/node": "^25.1.0",
     "@typescript-eslint/eslint-plugin": "^8.54.0",
@@ -39,5 +40,8 @@
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16"
   }
 }
