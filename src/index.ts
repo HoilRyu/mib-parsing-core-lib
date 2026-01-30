@@ -3,9 +3,11 @@ import { FileHandler } from './input/file-handler';
 import { ZipHandler } from './input/zip-handler';
 import { MibParser } from './core/mib-parser';
 import { ParseResultSummary, MibSymbolInfo } from './types';
+import { DependencyResolver } from './utils/dependency-resolver';
 
 export interface ParseOptions {
     mode: 'separate' | 'merged';
+    standardMibDirs?: string[];
 }
 
 /**
@@ -20,12 +22,21 @@ export function parseMib(
     const { filePaths, cleanup } = collectAllMibFiles(input);
     const parser = new MibParser();
 
+    // 의존성 해결을 위해 DependencyResolver 사용
+    const searchDirs = options.standardMibDirs || [
+        path.join(process.cwd(), 'assets/mibs/standard'),
+        path.join(process.cwd(), 'node_modules/net-snmp/lib/mibs'),
+    ];
+    const resolver = new DependencyResolver(searchDirs);
+    const orderedFiles = resolver.resolveOrder(filePaths);
+
     // 2. 파싱 (Phase 3 연동)
-    for (const file of filePaths) {
+    for (const file of orderedFiles) {
         try {
             parser.loadModule(file);
         } catch (error) {
             console.warn(`Failed to load ${file}:`, error);
+            // 에러 정보 기록 (ParseResultSummary.errors에 추가 가능)
         }
     }
 
